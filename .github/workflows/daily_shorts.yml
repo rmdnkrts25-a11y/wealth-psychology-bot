@@ -1,0 +1,74 @@
+name: Daily Finance Shorts & Bi-Daily Documentary
+
+on:
+  schedule:
+    # 1) HER GÜN Türkiye saati ile 20:00'de (17:00 UTC) 1 adet Shorts üretir
+    - cron: '0 17 * * *'
+    # 2) 2 GÜNDE BİR Türkiye saati ile 22:00'de (19:00 UTC) 11 dakikalık Belgesel üretir
+    - cron: '0 19 */2 * *'
+  workflow_dispatch:
+    inputs:
+      video_mode:
+        description: 'Hangi videoyu üretmek istersin? (short = Günlük Shorts, long = 11 Dk Belgesel)'
+        required: true
+        default: 'short'
+        type: choice
+        options:
+          - short
+          - long
+
+permissions:
+  contents: write
+
+jobs:
+  create-and-upload-video:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Depo Dosyalarını Çek
+        uses: actions/checkout@v4
+
+      - name: FFmpeg ve Yazı Tiplerini Kur
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core curl
+
+      - name: Python 3.11 Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Gerekli Kütüphaneleri Yükle
+        run: |
+          pip install --upgrade pip
+          pip install requests edge-tts google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2
+
+      - name: Video Modunu Belirle (Shorts veya 11 Dk Belgesel)
+        id: set_mode
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "MODE=${{ github.event.inputs.video_mode }}" >> $GITHUB_ENV
+          elif [ "${{ github.event.schedule }}" == "0 19 */2 * *" ]; then
+            echo "MODE=long" >> $GITHUB_ENV
+          else
+            echo "MODE=short" >> $GITHUB_ENV
+          fi
+
+      - name: Videoyu Üret ve YouTube Kanalına Yükle
+        env:
+          VIDEO_MODE: ${{ env.MODE }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python main.py
+
+      - name: İşlenen Konuyu Hafızaya Kaydet
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add used_topics.txt
+          git diff --staged --quiet || git commit -m "Yeni video konusu eklendi [skip ci]"
+          git push
